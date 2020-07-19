@@ -5,6 +5,9 @@ CLASS zcl_abapgit_log DEFINITION
   PUBLIC SECTION.
 
     INTERFACES zif_abapgit_log .
+    METHODS constructor
+      IMPORTING
+        iv_title TYPE string OPTIONAL.
 
   PROTECTED SECTION.
 
@@ -21,8 +24,7 @@ CLASS zcl_abapgit_log DEFINITION
         exception TYPE REF TO cx_root,
       END OF ty_log .
 
-    DATA:
-      mt_log TYPE STANDARD TABLE OF ty_log WITH DEFAULT KEY .
+    DATA mt_log TYPE STANDARD TABLE OF ty_log WITH DEFAULT KEY .
     DATA mv_title TYPE string .
 
     METHODS get_messages_status
@@ -36,6 +38,13 @@ ENDCLASS.
 
 
 CLASS zcl_abapgit_log IMPLEMENTATION.
+
+  METHOD constructor.
+
+    me->zif_abapgit_log~set_title( iv_title ).
+    RAISE EVENT zif_abapgit_log~log_created EXPORTING ir_log = me.
+
+  ENDMETHOD.
 
 
   METHOD get_messages_status.

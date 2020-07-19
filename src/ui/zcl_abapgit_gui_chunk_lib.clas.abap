@@ -14,11 +14,11 @@ CLASS zcl_abapgit_gui_chunk_lib DEFINITION
     CLASS-METHODS class_constructor.
     CLASS-METHODS render_error
       IMPORTING
-        !ix_error      TYPE REF TO zcx_abapgit_exception OPTIONAL
-        !iv_error      TYPE string OPTIONAL
+        !ix_error       TYPE REF TO zcx_abapgit_exception OPTIONAL
+        !iv_error       TYPE string OPTIONAL
         !iv_extra_style TYPE string OPTIONAL
       RETURNING
-        VALUE(ro_html) TYPE REF TO zcl_abapgit_html .
+        VALUE(ro_html)  TYPE REF TO zcl_abapgit_html .
     CLASS-METHODS render_repo_top
       IMPORTING
         !io_repo               TYPE REF TO zcl_abapgit_repo
@@ -62,6 +62,10 @@ CLASS zcl_abapgit_gui_chunk_lib DEFINITION
         ix_error       TYPE REF TO zcx_abapgit_exception
       RETURNING
         VALUE(ro_html) TYPE REF TO zcl_abapgit_html.
+    CLASS-METHODS render_success_message_box
+      IMPORTING is_log_entry   TYPE zif_abapgit_log=>ty_log_out
+      RETURNING
+                VALUE(ro_html) TYPE REF TO zcl_abapgit_html.
     CLASS-METHODS parse_change_order_by
       IMPORTING
         iv_query_str       TYPE clike
@@ -103,7 +107,7 @@ CLASS zcl_abapgit_gui_chunk_lib DEFINITION
         VALUE(ro_html) TYPE REF TO zcl_abapgit_html.
     CLASS-METHODS render_repo_palette
       IMPORTING
-        iv_action TYPE string
+        iv_action      TYPE string
       RETURNING
         VALUE(ri_html) TYPE REF TO zif_abapgit_html
       RAISING
@@ -143,7 +147,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_GUI_CHUNK_LIB IMPLEMENTATION.
+CLASS zcl_abapgit_gui_chunk_lib IMPLEMENTATION.
 
 
   METHOD advanced_submenu.
@@ -322,7 +326,6 @@ CLASS ZCL_ABAPGIT_GUI_CHUNK_LIB IMPLEMENTATION.
 
   ENDMETHOD.
 
-
   METHOD render_error_message_box.
 
     DATA:
@@ -410,6 +413,46 @@ CLASS ZCL_ABAPGIT_GUI_CHUNK_LIB IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD render_success_message_box.
+
+    DATA:
+      lv_error_text   TYPE string,
+      lv_longtext     TYPE string,
+      lv_program_name TYPE sy-repid,
+      lv_title        TYPE string,
+      lv_text         TYPE string.
+
+
+    CREATE OBJECT ro_html.
+
+    ro_html->add( |<div id="message" class="message-panel success-panel">| ).
+    ro_html->add( |{ is_log_entry-text }| ).
+    ro_html->add( |<div class="float-right">| ).
+
+    ro_html->add_a(
+        iv_txt   = `&#x274c;`
+        iv_act   = `toggleDisplay('message')`
+        iv_class = `close-btn`
+        iv_typ   = zif_abapgit_html=>c_action_type-onclick ).
+
+    ro_html->add( |</div>| ).
+
+    ro_html->add( |<div class="float-right message-panel-commands">| ).
+
+    IF is_log_entry-obj_type = 'SHA1'.
+      ro_html->add_a(
+          iv_txt   = `Goto Repository`
+          iv_act   = zif_abapgit_definitions=>c_action-goto_repo
+          iv_typ   = zif_abapgit_html=>c_action_type-sapevent
+          iv_title = lv_title
+          iv_id    = `a_goto_repo` ).
+    ENDIF.
+
+    ro_html->add( |</div>| ).
+    ro_html->add( |</div>| ).
+
+  ENDMETHOD.
+
 
   METHOD render_event_as_form.
 
@@ -435,6 +478,7 @@ CLASS ZCL_ABAPGIT_GUI_CHUNK_LIB IMPLEMENTATION.
     IF iv_scrollable = abap_false. " Initially hide
       lv_class = lv_class && ' info-panel-fixed'.
     ENDIF.
+
 
     ro_html->add( |<div id="{ iv_div_id }" class="{ lv_class }" style="{ lv_display }">| ).
 

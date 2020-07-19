@@ -31,6 +31,8 @@ INTERFACE zif_abapgit_log
     tty_item_status_out TYPE SORTED TABLE OF ty_item_status_out
                         WITH UNIQUE KEY item-obj_type item-obj_name .
 
+  EVENTS log_created EXPORTING VALUE(ir_log) TYPE REF TO zif_abapgit_log.
+
   METHODS add
     IMPORTING
       !iv_msg  TYPE csequence

@@ -6,7 +6,8 @@ CLASS zcl_abapgit_gui_page DEFINITION PUBLIC ABSTRACT
     INTERFACES:
       zif_abapgit_gui_renderable,
       zif_abapgit_gui_event_handler,
-      zif_abapgit_gui_error_handler.
+      zif_abapgit_gui_error_handler,
+      zif_abapgit_gui_log_handler.
 
     METHODS:
       constructor RAISING zcx_abapgit_exception.
@@ -22,7 +23,7 @@ CLASS zcl_abapgit_gui_page DEFINITION PUBLIC ABSTRACT
     DATA ms_control TYPE ty_control .
 
     METHODS render_content
-      ABSTRACT
+          ABSTRACT
       RETURNING
         VALUE(ri_html) TYPE REF TO zif_abapgit_html
       RAISING
@@ -31,7 +32,8 @@ CLASS zcl_abapgit_gui_page DEFINITION PUBLIC ABSTRACT
     DATA:
       mo_settings         TYPE REF TO zcl_abapgit_settings,
       mx_error            TYPE REF TO zcx_abapgit_exception,
-      mo_exception_viewer TYPE REF TO zcl_abapgit_exception_viewer.
+      mo_exception_viewer TYPE REF TO zcl_abapgit_exception_viewer,
+      mo_log              TYPE REF TO zif_abapgit_log.
 
     METHODS render_deferred_parts
       IMPORTING
@@ -73,6 +75,12 @@ CLASS zcl_abapgit_gui_page DEFINITION PUBLIC ABSTRACT
       RAISING
         zcx_abapgit_exception.
 
+    METHODS render_success_message_box
+      RETURNING
+        VALUE(ro_html) TYPE REF TO zcl_abapgit_html
+      RAISING
+        zcx_abapgit_exception.
+
     METHODS scripts
       RETURNING
         VALUE(ro_html) TYPE REF TO zcl_abapgit_html
@@ -83,13 +91,15 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_GUI_PAGE IMPLEMENTATION.
+CLASS zcl_abapgit_gui_page IMPLEMENTATION.
 
 
   METHOD constructor.
 
     super->constructor( ).
     mo_settings = zcl_abapgit_persist_settings=>get_instance( )->read( ).
+
+    SET HANDLER me->zif_abapgit_gui_log_handler~handle_log FOR ALL INSTANCES ACTIVATION abap_true.
 
   ENDMETHOD.
 
@@ -206,6 +216,26 @@ CLASS ZCL_ABAPGIT_GUI_PAGE IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD render_success_message_box.
+
+    CONSTANTS lc_success TYPE string VALUE 'S' ##NO_TEXT.
+    DATA lt_messages TYPE zif_abapgit_log=>tty_log_out.
+    FIELD-SYMBOLS <ls_message> TYPE zif_abapgit_log=>ty_log_out.
+
+
+    CREATE OBJECT ro_html.
+
+    IF mo_log IS BOUND.
+
+      lt_messages = mo_log->get_messages( ).
+      READ TABLE lt_messages WITH KEY type = lc_success ASSIGNING <ls_message>.
+      IF sy-subrc = 0.
+        ro_html = zcl_abapgit_gui_chunk_lib=>render_success_message_box( <ls_message> ).
+      ENDIF.
+
+    ENDIF.
+
+  ENDMETHOD.
 
   METHOD render_hotkey_overview.
 
@@ -328,6 +358,7 @@ CLASS ZCL_ABAPGIT_GUI_PAGE IMPLEMENTATION.
 
     ri_html->add( render_hotkey_overview( ) ).
     ri_html->add( render_error_message_box( ) ).
+    ri_html->add( render_success_message_box( ) ).
 
     render_deferred_parts(
       ii_html          = ri_html
@@ -348,4 +379,13 @@ CLASS ZCL_ABAPGIT_GUI_PAGE IMPLEMENTATION.
     ri_html->add( '</html>' ).                              "#EC NOTEXT
 
   ENDMETHOD.
+
+  METHOD zif_abapgit_gui_log_handler~handle_log.
+
+    IF ir_log->get_title( ) = |Push|.
+      mo_log = ir_log.
+    ENDIF.
+
+  ENDMETHOD.
+
 ENDCLASS.
