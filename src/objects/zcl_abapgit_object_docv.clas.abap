@@ -26,17 +26,35 @@ CLASS zcl_abapgit_object_docv DEFINITION
         head     TYPE thead,
         lines    TYPE tline_tab,
       END OF ty_data.
+    TYPES:
+      ty_data_tt TYPE STANDARD TABLE OF ty_data WITH DEFAULT KEY.
 
     CONSTANTS c_typ TYPE dokhl-typ VALUE 'E' ##NO_TEXT.
-    CONSTANTS c_version TYPE dokhl-dokversion VALUE '0001' ##NO_TEXT.
+    CONSTANTS c_first_version TYPE dokhl-dokversion VALUE '0001' ##NO_TEXT.
+    CONSTANTS c_state_active TYPE dokhl-dokstate VALUE 'A' ##NO_TEXT.
     CONSTANTS c_name TYPE string VALUE 'DOC' ##NO_TEXT.
+    CONSTANTS c_name_i18n TYPE string VALUE 'I18N_DOC' ##NO_TEXT.
 
     DATA mv_id TYPE dokhl-id.
     DATA mv_doc_object TYPE dokhl-object.
 
+    METHODS get_version
+      IMPORTING
+        !iv_language      TYPE spras
+      RETURNING
+        VALUE(rv_version) TYPE dokhl-dokversion.
     METHODS read
+      IMPORTING
+        !iv_language   TYPE spras
       RETURNING
         VALUE(rs_data) TYPE ty_data.
+    METHODS write
+      IMPORTING
+        !is_data         TYPE ty_data
+        !iv_no_main_lang TYPE abap_bool.
+    METHODS clear_fields
+      CHANGING
+        !cs_data TYPE ty_data.
 ENDCLASS.
 
 
@@ -79,15 +97,49 @@ CLASS zcl_abapgit_object_docv IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD clear_fields.
+
+    CLEAR: cs_data-head-tdfuser,
+           cs_data-head-tdfreles,
+           cs_data-head-tdfdate,
+           cs_data-head-tdftime,
+           cs_data-head-tdluser,
+           cs_data-head-tdlreles,
+           cs_data-head-tdldate,
+           cs_data-head-tdltime.
+
+  ENDMETHOD.
+
+
+  METHOD get_version.
+
+    " DOKIL holds the current version of the document per language
+    SELECT SINGLE version FROM dokil INTO rv_version
+      WHERE id     = mv_id
+        AND object = mv_doc_object
+        AND langu  = iv_language
+        AND typ    = c_typ.
+
+  ENDMETHOD.
+
+
   METHOD read.
+
+    DATA lv_version TYPE dokhl-dokversion.
+
+
+    lv_version = get_version( iv_language ).
+    IF lv_version IS INITIAL.
+      RETURN.
+    ENDIF.
 
     CALL FUNCTION 'DOCU_READ'
       EXPORTING
         id       = mv_id
-        langu    = mv_language
+        langu    = iv_language
         object   = mv_doc_object
         typ      = c_typ
-        version  = c_version
+        version  = lv_version
       IMPORTING
         doktitle = rs_data-doctitle
         head     = rs_data-head
@@ -97,8 +149,43 @@ CLASS zcl_abapgit_object_docv IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD write.
+
+    DATA: lv_version TYPE dokhl-dokversion,
+          ls_current TYPE ty_data,
+          lt_lines   TYPE tline_tab.
+
+
+    lv_version = get_version( is_data-head-tdspras ).
+
+    IF lv_version IS INITIAL.
+      lv_version = c_first_version.
+    ELSE.
+      " Only create a new version if the text has changed
+      ls_current = read( is_data-head-tdspras ).
+      IF ls_current-lines = is_data-lines.
+        RETURN.
+      ENDIF.
+      lv_version = lv_version + 1.
+    ENDIF.
+
+    lt_lines = is_data-lines.
+
+    CALL FUNCTION 'DOCU_UPDATE'
+      EXPORTING
+        head          = is_data-head
+        state         = c_state_active
+        typ           = c_typ
+        version       = lv_version
+        no_masterlang = iv_no_main_lang
+      TABLES
+        line          = lt_lines.
+
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~changed_by.
-    rv_user = read( )-head-tdluser.
+    rv_user = read( mv_language )-head-tdluser.
     IF rv_user IS INITIAL.
       rv_user = c_user_unknown.
     ENDIF.
@@ -107,18 +194,32 @@ CLASS zcl_abapgit_object_docv IMPLEMENTATION.
 
   METHOD zif_abapgit_object~delete.
 
-    CALL FUNCTION 'DOCU_DEL'
-      EXPORTING
-        id       = mv_id
-        langu    = mv_language
-        object   = mv_doc_object
-        typ      = c_typ
-      EXCEPTIONS
-        ret_code = 1
-        OTHERS   = 2.
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise_t100( ).
-    ENDIF.
+    DATA: lt_languages TYPE zif_abapgit_definitions=>ty_sap_langu_tab,
+          lv_language  LIKE LINE OF lt_languages.
+
+
+    SELECT langu FROM dokil INTO TABLE lt_languages
+      WHERE id     = mv_id
+        AND object = mv_doc_object
+        AND typ    = c_typ
+      ORDER BY langu.                                     "#EC CI_GENBUFF
+
+    LOOP AT lt_languages INTO lv_language.
+
+      CALL FUNCTION 'DOCU_DEL'
+        EXPORTING
+          id       = mv_id
+          langu    = lv_language
+          object   = mv_doc_object
+          typ      = c_typ
+        EXCEPTIONS
+          ret_code = 1
+          OTHERS   = 2.
+      IF sy-subrc <> 0.
+        zcx_abapgit_exception=>raise_t100( ).
+      ENDIF.
+
+    ENDLOOP.
 
     corr_insert( iv_package ).
 
@@ -127,20 +228,25 @@ CLASS zcl_abapgit_object_docv IMPLEMENTATION.
 
   METHOD zif_abapgit_object~deserialize.
 
-    DATA: ls_data TYPE ty_data.
+    DATA: ls_data TYPE ty_data,
+          lt_i18n TYPE ty_data_tt.
+
+    FIELD-SYMBOLS: <ls_i18n> LIKE LINE OF lt_i18n.
 
 
     io_xml->read( EXPORTING iv_name = c_name
                   CHANGING cg_data = ls_data ).
 
-    CALL FUNCTION 'DOCU_UPDATE'
-      EXPORTING
-        head    = ls_data-head
-        state   = 'A'
-        typ     = c_typ
-        version = c_version
-      TABLES
-        line    = ls_data-lines.
+    write( is_data         = ls_data
+           iv_no_main_lang = abap_false ).
+
+    io_xml->read( EXPORTING iv_name = c_name_i18n
+                  CHANGING cg_data = lt_i18n ).
+
+    LOOP AT lt_i18n ASSIGNING <ls_i18n>.
+      write( is_data         = <ls_i18n>
+             iv_no_main_lang = abap_true ).
+    ENDLOOP.
 
     tadir_insert( iv_package ).
 
@@ -206,22 +312,42 @@ CLASS zcl_abapgit_object_docv IMPLEMENTATION.
 
   METHOD zif_abapgit_object~serialize.
 
-    DATA: ls_data   TYPE ty_data.
+    DATA: ls_data      TYPE ty_data,
+          lt_i18n      TYPE ty_data_tt,
+          lt_languages TYPE zif_abapgit_definitions=>ty_sap_langu_tab,
+          lv_language  LIKE LINE OF lt_languages.
 
 
-    ls_data = read( ).
-
-    CLEAR: ls_data-head-tdfuser,
-           ls_data-head-tdfreles,
-           ls_data-head-tdfdate,
-           ls_data-head-tdftime,
-           ls_data-head-tdluser,
-           ls_data-head-tdlreles,
-           ls_data-head-tdldate,
-           ls_data-head-tdltime.
+    ls_data = read( mv_language ).
+    clear_fields( CHANGING cs_data = ls_data ).
 
     io_xml->add( iv_name = c_name
                  ig_data = ls_data ).
+
+    IF mo_i18n_params->ms_params-main_language_only = abap_true.
+      RETURN.
+    ENDIF.
+
+    SELECT langu FROM dokil INTO TABLE lt_languages
+      WHERE id       = mv_id
+        AND object   = mv_doc_object
+        AND typ      = c_typ
+        AND langu    <> mv_language
+        AND txtlines > 0
+      ORDER BY langu.                                     "#EC CI_GENBUFF
+
+    mo_i18n_params->trim_saplang_list( CHANGING ct_sap_langs = lt_languages ).
+
+    LOOP AT lt_languages INTO lv_language.
+      ls_data = read( lv_language ).
+      clear_fields( CHANGING cs_data = ls_data ).
+      APPEND ls_data TO lt_i18n.
+    ENDLOOP.
+
+    IF lt_i18n IS NOT INITIAL.
+      io_xml->add( iv_name = c_name_i18n
+                   ig_data = lt_i18n ).
+    ENDIF.
 
   ENDMETHOD.
 ENDCLASS.
