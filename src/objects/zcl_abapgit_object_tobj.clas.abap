@@ -10,6 +10,10 @@ CLASS zcl_abapgit_object_tobj DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
              tvimf TYPE STANDARD TABLE OF tvimf WITH DEFAULT KEY,
            END OF ty_tobj.
 
+    " Views, tables and clusters: SAP derives the object text from the DDIC object
+    " and does not store it in OBJT, so abapGit keeps the serialized text there
+    CONSTANTS c_ddic_text_types TYPE c LENGTH 3 VALUE 'VSC' ##NO_TEXT.
+
     METHODS:
       read_extra IMPORTING iv_tabname     TYPE vim_name
                  RETURNING VALUE(rs_tobj) TYPE ty_tobj,
@@ -121,6 +125,12 @@ CLASS zcl_abapgit_object_tobj IMPLEMENTATION.
 
     delete_extra( ls_objh-objectname ).
 
+    IF ls_objh-objecttype CA c_ddic_text_types.
+      DELETE FROM objt
+        WHERE objectname = ls_objh-objectname
+        AND objecttype = ls_objh-objecttype.
+    ENDIF.
+
   ENDMETHOD.
 
 
@@ -209,6 +219,17 @@ CLASS zcl_abapgit_object_tobj IMPLEMENTATION.
 * for Individual Transaction Objects
     IF ls_objh-objecttype = 'T'.
       MODIFY objs FROM TABLE lt_objs.
+    ENDIF.
+
+* fm OBJ_GENERATE ignores the object text for views, tables and clusters
+* store it in OBJT so serialization returns the text from the repository
+    IF ls_objh-objecttype CA c_ddic_text_types AND ls_objt-ddtext IS NOT INITIAL.
+      ls_objt-objectname = ls_objh-objectname.
+      ls_objt-objecttype = ls_objh-objecttype.
+      IF ls_objt-language IS INITIAL.
+        ls_objt-language = mv_language.
+      ENDIF.
+      MODIFY objt FROM ls_objt.
     ENDIF.
 
     io_xml->read( EXPORTING iv_name = 'TOBJ'
@@ -338,6 +359,14 @@ CLASS zcl_abapgit_object_tobj IMPLEMENTATION.
       RETURN.
     ELSEIF sy-subrc <> 0.
       zcx_abapgit_exception=>raise_t100( ).
+    ENDIF.
+
+    " Prefer the text stored by abapGit, otherwise keep the DDIC text from CTO_OBJECT_GET
+    IF ls_objh-objecttype CA c_ddic_text_types.
+      SELECT SINGLE * FROM objt INTO ls_objt
+        WHERE objectname = ls_objh-objectname
+        AND objecttype = ls_objh-objecttype
+        AND language = mv_language.
     ENDIF.
 
     CLEAR: ls_objh-luser,
